@@ -1,0 +1,8 @@
+torch==1.10.2
+numpy==1.19.5
+tqdm==4.64.1
+transformers
+pandas==1.1.5
+tensorboardX==2.5.1
+sentencepiece==0.1.97
+git+https://github.com/cwnu-airlab/NLTKo
