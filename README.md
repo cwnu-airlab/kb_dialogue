@@ -1,95 +1,115 @@
-# 외부 지식을 이용한 대화 모델
-외부 지식을 이용한 대화 모델
 
-### 01. 외부 지식 설정
+# 개요
+M3는 외부 메모리를 사용하는 멀티모달 처리 시스템이다. 본 문서는 M3의 기본 개념과 구조, 각 파일에 대한 설명, 사용법, 그리고 응용에 대해서 설명한다.
 
-기존의 영어 위키피디아 문서로 구성된 외부지식을 사용하거나 사용자가 진행할 task에 맞춰서 진행하기 위해서 `/config/config.json` 에 명시된 파라미터 내 `"additional_documents_path":false`이면 share에 저장되어 있는 영어 위키피디아 문서를 복사해와서 `'data'` 폴더 내 저장한다. "additional_documents_path"에 사용자가 진행할 task에 대한 문서를 `.npy` 파일로 불러오도록 한다.
+# 디렉토리 구조
 
-실제로 `"additional_documents_path"` 의 확장자가  `.npy` 파일이라면 해당 파일을 불러와서 사용하고, 확장자가 `.tsv` 또는 `.txt`라면 해당 데이터를 각 라인을 외부 문서로 읽어서 외부지식으로 사용한다.
+~~~
+.
+├── checkpoint
+├── data
+├── nets
+├── saved
+├── utils
+├── valid_t5-generator_lr_0.0001_pat_7_epoch_0000051_valLoss_0.1840_valAcc_0.9731
+├── action.py
+├── agent.py
+├── config.py
+├── dataset.py
+├── main.py
+├── net.py
+├── requirement.txt
+├── retriever.py
+└── run_jit01.sh
+~~~
+M3의 폴더 구조는 위와 같다. 각각에 대한 설명은 다음과 같다.
 
-### 02. 학습
+- checkpoint: 학습 중간에 chekpoint를 저장하는 폴더
+- data: 학습하는 데이터를 저장하는 폴더. 여러 개의 데이터에 대한 실험을 진행하는 경우에 이 아래에 다시 폴더를 만들어서 진행한다.
+- nets: M3의 하부 구조를 이루는 사전학습 모델(pretrained model)과의 인터페이스를 위해 만든 파일이 있는 폴더
+- saved: 미세조정된 모델, 로그 정보를 저장하는 폴더. 여기에는 'models'와 'logdirs'가 있다.
+- utils: action 클래스에서 사용하는 개별 함수들이 구현된 파일이 있는 폴더
+- valid_t5... : 사전학습된 모델이 저장된 공간. 우리는 KET5를 사용하고 있다.
 
-`/config/config.json` 에 명시된 파라미터를 입력으로 하여 학습을 진행한다. config.json에는 크게 2가지로 나눌 수 있으며, "t5"와 "trainer"로 나눌 수 있다.
+다음은 M3를 구성하는 파일들에 대한 설명이다.
 
-* t5 : 기존 realmConfig와 t5 config를 merge하여 생성된 config
-* trainer : 실제 학습 및 예측에 사용되는 하이퍼파라미터에 대한 config
+- main.py : 프로그램의 시작이 되면 부분. 
+- config.py: 프로그램의 모든 설정이 저장된 클래스. 실제 실험에는 shell 파일을 이용해 조정이 가능하다.
+- agent.py: 프로그램의 핵심 구조가 있는 부분. 
+- dataset.py: 학습데이터와 외부 지식을 읽는 부분.
+- retriever.py: 외부지식을 검색하는 부분
+- net.py:  결과를 생성하는 부분. 응용에 따라서 생성(generation), 선택(QA), 분류(classification) 등의 구조를 가질 수 있다. 이것은 'net_type'이라는 변수를 통해서 결정한다. 
 
-이 때 config를 변경해야한다. 학습 시`"predict" : false`, ` "evalutate : false"` 으로 설정해야 한다. t5의 모델 선택에 따라 `projected_size` 또한 동일하게 맞춰주어야 한다. 예를 들어 `t5-small`이면  `projected_sizes`는 512이여야 한다.
 
-#### 실행 예시
+# 실행
+실험을 위해서 실행을 하려면 'run_xxx01.sh'을 수정한다. 이 파일 이름에서 'xxx'는 학습할 데이터를 사용하도록 설계되었다. 그 다음의 번호는 실험 번호이다. 첫번째 실험 '01', 두번째 실험 '02' 이러한 방법으로 사용하면 된다. 예를들어 'run_jit01.sh'이면 'jit' 데이터를 사용하는 첫번째 실험이라는 말이 된다.
 
-```python
-python run.py -c config/config.json -d 0
-```
+shell 파일의 내용은 다음과 같다.
+~~~shell
+set -e # Exit immediately if a pipeline returns non-zeros signal
+set -x # Print a trace of simple command
 
-* -c : config 파일 path, default=None
-* -d : gpu device 번호
+#export PYTHONPATH='src'
+log_dir="saved/logdirs/"
+#cd src
 
-#### 학습 데이터 형식 예제
+# non-directory portion of the name of the shell scirpts
+file_name=`basename $0`
+# ##-> Deletes longest match of (*_) from front of $file_name.
+experiment_index=${file_name##*_}
+# %%-> Deletes longest match of $s (.*) from back of $experiment_index.
+experiment_index=${experiment_index%%.*}
+log_file=$log_dir$experiment_index.log.txt
 
-1. json
+python3 main.py \
+    --experiment_index=$experiment_index \
+    --device=mps \
+	--data_dir=data/jit_data/run/\
+	--dataset=jit_real.json \
+	--datatype=text \
+    --model_type=generator \
+	--tokenizer_path=KETI-AIR/ke-t5-small\
+    --n_epochs=30 \
+    --num_workers=0 \
+    --eval_frequency=100 \
+    --seed=-1 \
+	--batch_size=64\
+	--searcher_beam_size=5 \
+	--update_retriever_emb=True \
+	--update_generator_emb=True \
+	--external_memory_path=data/jit_data/kb/valid_kb.txt \
+	--pretrained_weight_path=valid_t5-generator_lr_0.0001_pat_7_epoch_0000051_valLoss_0.1840_valAcc_0.9731\
+    2>&1 | tee $log_file
+~~~
+__각 항목에 대한 설명들__
 
-   ```json
-   [
-     {
-     "source": "This is input sentence.",
-     "target": "This is output sentence.",
-     "kb_idx": 4995
-     },
-     {
-     "source": "This is input sentence.",
-     "target": "This is output sentence.",
-     "kb_idx": 4995
-     }
-    ]
-   ```
+실험을 진행한다면 다음과 같은 순서를 따라서 진행하면 된다. 
 
-2. jsonl
+1. linux 환경인지 macos 환경인지 결정한다.
+2. 학습할 데이터를 결정한다. 예를 들어 jit_real.json이라고 하자. 입력 파일 형식에 대해서는 아래에서 설명한다.
+3. dataset.py의 load_data(), \_load_jit() 를 수정한다. 
+4. action.get_loss_fn()에서 입력 파일에 따라 손실함수를 수정한다. 
+5. shell 파일에서 실행환경, 각 폴더와 파일, 파라미터를 수정한다. 
 
-   ```json
-   {"source": "This is input sentence.", "target": "This is output sentence.", "kb_idx": 4995}
-   {"source": "This is input sentence.", "target": "This is output sentence.", "kb_idx": 4995}
-   ```
+이제 다음과 같이 실행한다. 
 
-3. txt, tsv : `[SOURCE]\t[TARGET]\t[KB_INDEX] `형식으로 구성되어 있어야 함
+~~~
+$> bash ./run_jit01.sh
+~~~
 
-   ```tex
-   This is input sentence.	This is output sentence.	4995
-   This is input sentence.	This is output sentence.	4995
-   ```
 
-### 03. 예측
+# 학습 데이터
+학습 데이터는 다음과 같은 형식을 지원한다.  또한 데이터는 'text', 'image', 'video'가 가능한다. 이 형식은 'data_type' 변수를 사용하여 결정한다. 
 
-이 때 config를 변경해야한다. 학습 시`"predict" :true ` 으로 설정하고 실행한다.  `"evalutate : true"`로 설정하면 정답 문장과 예측 문장을 이용하여 nltko 라이브러리의 measure들을 이용하여 성능까지 측정한다.
+> - json
+> - jsonl
+> - txt
+> - csv
+> - tsv
 
-#### 실행 예시
 
-```python
-python run.py -c config/config.json -d 0
-```
 
-* -c : config 파일 path, default=None
-* -d : gpu device 번호
+# 외부 지식
+검색기에서 사용하는 외부 지식이다. 텍스트 형식을 가지고 있으며 dataset.py에서 읽어들인다. 
 
-#### 예측 결과 예시
 
-```json
-{
-	"data" : {
-		"source" : "This is sentence",
-		"target" : "This is sentence",
-    "kb_idx" : 4995
-	},
-	"output" : {
-		"srce" : "This is sentence",
-		"gold" : "This is sentence",
-		"pred" : "This is sentence",
-    "gold_kb" : 4995,
-    "pred_kb" : [3343, 3452, 4112,...] 
-	}
-}
-```
-
-## Acknowledgement
-본 연구는 정부(과학기술정보통신부)의 재원으로 지원을 받아 수행된 연구입니다.   
-(정보통신기획평가원, 2022-0-00320, 상황인지 및 사용자 이해를 통한 인공지능 기반 1:1 복합대화 기술 개발)
