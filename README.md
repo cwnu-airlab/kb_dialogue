@@ -1,10 +1,5 @@
 # 개요
 
-1. 상황인지 및 사용자 이해를 통한 인공지능 기반 1:1 복합대화 기술 개발
-2. 외부 지식에서 입력 문장과 관련된 문서를 검색(Retriever) 후 입력 문장과 검색된 문서를 사용하여 사용자의 답변을 생성(Generator)
-  
-[GitHub](https://github.com/alexa/alexa-with-dstc9-track1-dataset/tree/master?tab=readme-ov-file), [DSTC9 paper](https://arxiv.org/pdf/2011.06486.pdf), [DSTC9 best human evaluation paper](https://arxiv.org/pdf/2102.02096.pdf)
-
 # 디렉토리 구조
 
 ~~~
@@ -107,7 +102,7 @@
 - `top_p` : 누적 확률 p안의 후보 단어 중에 sampling
 - `learning_rate` : 학습률
 
-# 학습 
+# 학습
 
 1. 실험 파라미터 값들을 파라미터로 전달받아 run 파일을 실행하는 쉘 파일 생성
 2. `sh run_dstc9_{version}_ict.sh` 명령어로 쉘 파일 실행
