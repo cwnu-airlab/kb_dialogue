@@ -1,0 +1,5 @@
+torch==1.13.1
+pandas
+numpy==1.23.0
+transformers
+scikit-learn
