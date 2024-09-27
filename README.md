@@ -1,115 +1,127 @@
-
 # 개요
-M3는 외부 메모리를 사용하는 멀티모달 처리 시스템이다. 본 문서는 M3의 기본 개념과 구조, 각 파일에 대한 설명, 사용법, 그리고 응용에 대해서 설명한다.
+
+1. 상황인지 및 사용자 이해를 통한 인공지능 기반 1:1 복합대화 기술 개발
+2. 외부 지식에서 입력 문장과 관련된 문서를 검색(Retriever) 후 입력 문장과 검색된 문서를 사용하여 사용자의 답변을 생성(Generator)
+  
+[GitHub](https://github.com/alexa/alexa-with-dstc9-track1-dataset/tree/master?tab=readme-ov-file), [DSTC9 paper](https://arxiv.org/pdf/2011.06486.pdf), [DSTC9 best human evaluation paper](https://arxiv.org/pdf/2102.02096.pdf)
 
 # 디렉토리 구조
 
 ~~~
 .
 ├── checkpoint
+├── M3
+     ├── agent.py
+     ├── data_module.py
+     ├── model.py
+     └── upgrade_data_module.py
 ├── data
-├── nets
-├── saved
-├── utils
-├── valid_t5-generator_lr_0.0001_pat_7_epoch_0000051_valLoss_0.1840_valAcc_0.9731
-├── action.py
-├── agent.py
-├── config.py
-├── dataset.py
-├── main.py
-├── net.py
-├── requirement.txt
-├── retriever.py
-└── run_jit01.sh
-~~~
-M3의 폴더 구조는 위와 같다. 각각에 대한 설명은 다음과 같다.
-
-- checkpoint: 학습 중간에 chekpoint를 저장하는 폴더
-- data: 학습하는 데이터를 저장하는 폴더. 여러 개의 데이터에 대한 실험을 진행하는 경우에 이 아래에 다시 폴더를 만들어서 진행한다.
-- nets: M3의 하부 구조를 이루는 사전학습 모델(pretrained model)과의 인터페이스를 위해 만든 파일이 있는 폴더
-- saved: 미세조정된 모델, 로그 정보를 저장하는 폴더. 여기에는 'models'와 'logdirs'가 있다.
-- utils: action 클래스에서 사용하는 개별 함수들이 구현된 파일이 있는 폴더
-- valid_t5... : 사전학습된 모델이 저장된 공간. 우리는 KET5를 사용하고 있다.
-
-다음은 M3를 구성하는 파일들에 대한 설명이다.
-
-- main.py : 프로그램의 시작이 되면 부분. 
-- config.py: 프로그램의 모든 설정이 저장된 클래스. 실제 실험에는 shell 파일을 이용해 조정이 가능하다.
-- agent.py: 프로그램의 핵심 구조가 있는 부분. 
-- dataset.py: 학습데이터와 외부 지식을 읽는 부분.
-- retriever.py: 외부지식을 검색하는 부분
-- net.py:  결과를 생성하는 부분. 응용에 따라서 생성(generation), 선택(QA), 분류(classification) 등의 구조를 가질 수 있다. 이것은 'net_type'이라는 변수를 통해서 결정한다. 
-
-
-# 실행
-실험을 위해서 실행을 하려면 'run_xxx01.sh'을 수정한다. 이 파일 이름에서 'xxx'는 학습할 데이터를 사용하도록 설계되었다. 그 다음의 번호는 실험 번호이다. 첫번째 실험 '01', 두번째 실험 '02' 이러한 방법으로 사용하면 된다. 예를들어 'run_jit01.sh'이면 'jit' 데이터를 사용하는 첫번째 실험이라는 말이 된다.
-
-shell 파일의 내용은 다음과 같다.
-~~~shell
-set -e # Exit immediately if a pipeline returns non-zeros signal
-set -x # Print a trace of simple command
-
-#export PYTHONPATH='src'
-log_dir="saved/logdirs/"
-#cd src
-
-# non-directory portion of the name of the shell scirpts
-file_name=`basename $0`
-# ##-> Deletes longest match of (*_) from front of $file_name.
-experiment_index=${file_name##*_}
-# %%-> Deletes longest match of $s (.*) from back of $experiment_index.
-experiment_index=${experiment_index%%.*}
-log_file=$log_dir$experiment_index.log.txt
-
-python3 main.py \
-    --experiment_index=$experiment_index \
-    --device=mps \
-	--data_dir=data/jit_data/run/\
-	--dataset=jit_real.json \
-	--datatype=text \
-    --model_type=generator \
-	--tokenizer_path=KETI-AIR/ke-t5-small\
-    --n_epochs=30 \
-    --num_workers=0 \
-    --eval_frequency=100 \
-    --seed=-1 \
-	--batch_size=64\
-	--searcher_beam_size=5 \
-	--update_retriever_emb=True \
-	--update_generator_emb=True \
-	--external_memory_path=data/jit_data/kb/valid_kb.txt \
-	--pretrained_weight_path=valid_t5-generator_lr_0.0001_pat_7_epoch_0000051_valLoss_0.1840_valAcc_0.9731\
-    2>&1 | tee $log_file
-~~~
-__각 항목에 대한 설명들__
-
-실험을 진행한다면 다음과 같은 순서를 따라서 진행하면 된다. 
-
-1. linux 환경인지 macos 환경인지 결정한다.
-2. 학습할 데이터를 결정한다. 예를 들어 jit_real.json이라고 하자. 입력 파일 형식에 대해서는 아래에서 설명한다.
-3. dataset.py의 load_data(), \_load_jit() 를 수정한다. 
-4. action.get_loss_fn()에서 입력 파일에 따라 손실함수를 수정한다. 
-5. shell 파일에서 실행환경, 각 폴더와 파일, 파라미터를 수정한다. 
-
-이제 다음과 같이 실행한다. 
-
-~~~
-$> bash ./run_jit01.sh
+     ├── data_eval
+     ├── test
+          ├── labels.json
+          └── logs.json
+     └── knowledge.json
+     ├── data_fit
+          ├── train
+                ├── labels.json
+                └── logs.json
+          ├── valid
+                ├── labels.json
+                └── logs.json
+          └── knowledge.json
+     ├── hotel_db.json
+     ├── restaurant_db.json
+     ├── taxi_db.json
+     └── san_francisco_db.json
+├── gener_eval.py
+├── retr_eval.py
+├── run.py
+├── run_dstc9_00_ict.sh
+├── run_dstc9_01_history.sh
+└── run_dstc9_02_generate.sh
 ~~~
 
+- `checkpoint` : 학습 중에 모델이 저장되는 폴더
+- `M3` : 학습 및 추론 코드가 존재하는 폴더
+	- `agent.py` : 학습 및 추론 수행 코드
+	- `data_module.py` : 데이터 셋 코드
+	- `model.py` : 모델 코드
+	- `upgrade_data_module.py` : 기존 데이터 셋에서 multiWOZ 2.1과 DSTC 9 eval 폴더에 존재하는 데이터베이스의 지역 정보를 활용하여 개체명을 추출을 개선한 코드
+- `data` : 데이터가 저장되어 있는 폴더
+	- `data_eval` : 평가 시 사용하는 데이터가 저장되어 있는 폴더
+		- `test` : test 데이터가 저장되어 있는 폴더
+			- `labels.json` : test 정답 데이터
+			- `logs.json` : test 대화 내역 데이터
+		- `knowledge.json` : 평가 시 사용하는 외부 지식 데이터
+	- `data_fit` : 학습 시 사용하는 데이터가 저장되어 있는 폴더
+		- `train` : train 데이터가 저장되어 있는 폴더
+			- `labels.json` : train 정답 데이터
+			- `logs.json` : train 대화 내역 데이터
+		- `valid` : valid 데이터가 저장되어 있는 폴더
+			- `labels.json` : valid 정답 데이터
+			- `logs.json` : valid 대화 내역 데이터
+		- `knowledge.json` : 학습 시 사용하는 외부 지식 데이터
+	- `hotel_db.json` : MultiWOZ 2.1에 있는 hotel 엔티티의 정보가 담긴 데이터베이스
+	- `restaurant_db.json` : MultiWOZ 2.1에 있는 restaurant 엔티티의 정보가 담긴 데이터베이스
+	- `taxi_db.json` : MultiWOZ 2.1에 있는 taxi 엔티티의 정보가 담긴 데이터베이스
+	- `san_francisco_db.json` : DSTC 9에 있는 샌프란시스코 엔티티의 정보가 담긴 데이터베이스
+- `gener_eval.py` : Generator 결과를 평가하는 코드
+- `retr_eval.py` : Retriever 결과를 평가하는 코드
+- `run.py` : 실험 파라미터를 설정한 후 agent를 호출하여 실험을 진행시키는 코드
+- `run_dstc9_00_ict.sh` : ict 사전 학습을 위한 baseline 쉘 파일
+- `run_dstc9_01_recent.sh` : 최근 도메인 + 최근 개체명 + 시스템의 마지막 발화 + 사용자의 마지막 발화를 Retriever의 입력으로 사용하는 recent 학습을 위한 baseline 쉘 파일
+- `run_dstc9_02_generate.sh` : Generator 학습을 위한 baseline 쉘 파일
 
-# 학습 데이터
-학습 데이터는 다음과 같은 형식을 지원한다.  또한 데이터는 'text', 'image', 'video'가 가능한다. 이 형식은 'data_type' 변수를 사용하여 결정한다. 
+# 주요 실험 파라미터
 
-> - json
-> - jsonl
-> - txt
-> - csv
-> - tsv
+- `version` : 실험 version
+- `gpu_id` : 학습 및 추론 시 사용할 GPU 지정
+- `model_type` : 사용할 모델 종류(ict, retriever, generator 중 선택)
+- `mode` : 실행 모드(train, predict 중 선택)
+- `refresh_frequency` : 외부 지식 임베딩 업데이트 주기
+- `gradient_accumulation_steps` : 기울기 누적 단계
+- `max_grad_norm` : 그래디언트 클리핑에 사용되는 기울기 최대 norm 값
+- `model_all_save` : 모든 중간 모델 저장 여부
+- `input_type` : Retriever 입력 형식 종류(history, entire, recent 중 선택)
+	- history : 일정 토큰 이내의 대화 내역을 입력
+	- entire : 전처리 모듈이 추출한 모든 도메인과 모든 개체명 그리고 시스템의 마지막 발화와 사용자의 마지막 발화를 입력
+	- recent : 전처리 모듈에서 추출된 도메인과 개체명 중 마지막으로 추출된 도메인과 개체명만을 시스템의 마지막 발화와 사용자의 마지막 발화와 함께 입력
+- `history_max_utterances` : 입력으로 사용할 대화 내역의 발화 갯수
+- `history_max_tokens` : 입력으로 사용할 대화 내역의 토큰 수
+- `retriever_prediction_result_path` : generator 추론 시 사용되는 retriever 결과 값이 저장된 파일 경로
+- `per_gpu_batch_size` : 학습 시에 gpu 당 batch 크기
+- `predict_batch_size` : 추론 시에 batch 크기
+- `num_workers` : dataloader를 위한 병렬 프로세스 수
+- `shuffle` : 데이터 shuffle 여부
+- `num_candidates` : 사용자의 질의와 유사한 후보 문서의 수
+- `vector_similarity` : 벡터 유사도 계산 방법(cosine 유사도, 내적 중 선택)
+- `use_proj_layer` : 프로젝션 레이어 사용 여부
+- `proj_size` : 프로젝션 레이어의 크기
+- `use_passage_body` : 외부 지식 문서 임베딩 생성 시 문서의 본문(body) 사용 여부
+- `pretrained_model_path` : 사전 학습된 모델 경로
+- `predict_model_path` : 추론 할 모델 경로
+- `max_new_tokens` : 새로 생성할 수 있는 최대 토큰 수
+- `num_beams` : 빔 search에서 사용되는 빔 수
+- `temperature` : 샘플링 시 사용할 온도 값
+- `top_k` : 상위 k개의 후보 단어 중에 sampling
+- `top_p` : 누적 확률 p안의 후보 단어 중에 sampling
+- `learning_rate` : 학습률
 
+# 학습 
 
+1. 실험 파라미터 값들을 파라미터로 전달받아 run 파일을 실행하는 쉘 파일 생성
+2. `sh run_dstc9_{version}_ict.sh` 명령어로 쉘 파일 실행
 
-# 외부 지식
-검색기에서 사용하는 외부 지식이다. 텍스트 형식을 가지고 있으며 dataset.py에서 읽어들인다. 
+※ multi gpu로 학습할 시 쉘 파일에 `python run.py` 대신 `torchrun --nproc_per_node={use_gpu_cnt} run.py`를 사용
 
+# 추론
 
+- mode를 predict로 설정한 후 쉘 파일을 실행할 시 자동으로 valid loss가 가장 적은 모델을 추론 진행
+- 추론할 모델을 직접 선택하고 싶을 경우 mode를 predict로 설정하고, `predict_model_path`를 모델이 저장된 디렉토리로 직접 지정 후 실행
+
+※ 추론 시에는 multi gpu 사용 X
+
+# 평가
+
+- Retriever 실험 결과 파일 경로를 retr_eval.py에 설정하고 실행
+- Generator 실험 결과 파일 경로를 gener_eval.py에 설정하고 실행
