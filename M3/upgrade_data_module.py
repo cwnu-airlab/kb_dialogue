@@ -65,8 +65,9 @@ class DatasetWalker():
 
 
 class KnowledgeReader():
-    def __init__(self, data_root):
+    def __init__(self, data_root, data_suffix):
         self.data_root = data_root
+        self.data_suffix = data_suffix
         knowledge_file = os.path.join(data_root, 'knowledge.json')
         with open(knowledge_file, 'r', encoding='utf-8') as fp:
             self.knowledge = json.load(fp)
@@ -88,17 +89,19 @@ class KnowledgeReader():
 
     def _create_areas(self):
         area_by_entity = dict()
-        areas = {"cambridge": list(), "san francisco": list()}
+        areas = {"cambridge": list(), "san francisco": list(), "캠브리지": list(), "샌프란시스코": list()}
         for domain, domain_dict in self.knowledge.items():
             if domain in ['taxi', 'train']:
                 continue
             for entity_id, entity_dict in domain_dict.items():
                 name = entity_dict['name']
-                city = normalize_text(entity_dict['city'])
+                name_ko = entity_dict['name'+self.data_suffix] if self.data_suffix != '' else None # 240930
+                city = normalize_text(entity_dict['city'+self.data_suffix])
                 area = normalize_text(entity_dict['area'])
                 if bool(area):
                     areas[city].append(area)
                 area_by_entity[name] = area
+                if name_ko : area_by_entity[name_ko] = area
 
         for city in areas:
             areas[city] = list(set(areas[city]))
@@ -111,7 +114,7 @@ class KnowledgeReader():
         entity_names = list()
         all_sub_str = list()
         for area in list(itertools.chain(*list(self.areas.values()))) + \
-                ["cambridge", "san francisco"]:
+                ["cambridge", "san francisco", "캠브리지", "샌프란시스코"]:
             all_sub_str.extend(area.split(" "))
 
         for domain, domain_dict in self.knowledge.items():
@@ -122,6 +125,11 @@ class KnowledgeReader():
                 entity_names.append(entity_name)
                 entity_name = normalize_text(entity_name)
                 all_sub_str.extend(entity_name.split(" "))
+                if self.data_suffix != '' : # 240930
+                    entity_name_ko = entity_dict['name'+self.data_suffix]
+                    entity_names.append(entity_name_ko)
+                    entity_name_ko = normalize_text(entity_name_ko)
+                    all_sub_str.extend(entity_name_ko.split(" "))
 
         counter = Counter(all_sub_str)
         all_unique_sub_str = [sub_str for sub_str in all_sub_str if counter[sub_str] == 1]
@@ -213,7 +221,8 @@ class KnowledgeReader():
         return "".join(snippets)
 
     def get_domain_list(self):
-        return list(self.knowledge.keys())
+        domain_list = list(self.knowledge.keys())
+        return domain_list
 
     def get_entity_name_list(self, domain):
         if domain not in self.get_domain_list():
@@ -231,6 +240,9 @@ class KnowledgeReader():
         for entity_id in sorted(entity_ids):
             entity_name = self.knowledge[domain][str(entity_id)]['name']
             entity_names.append(entity_name)
+            if self.data_suffix != '' : # 240930
+                entity_name_ko = self.knowledge[domain][str(entity_id)]['name'+self.data_suffix]
+                entity_names.append(entity_name_ko)
 
         return entity_names
 
@@ -269,16 +281,16 @@ class KnowledgeReader():
             raise ValueError("invalid doc id : %s" % str(doc_id))
 
         doc_obj = self.knowledge[domain][str(entity_id)]['docs'][str(doc_id)]
-        entity_name = self.knowledge[domain][str(entity_id)]['name'] or self.none_token
-        city = self.knowledge[domain][str(entity_id)]['city']
+        entity_name = self.knowledge[domain][str(entity_id)]['name'+self.data_suffix] or self.none_token
+        city = self.knowledge[domain][str(entity_id)]['city'+self.data_suffix]
         document = {
             'domain': domain,
             'entity_id': int(entity_id) if entity_id != "*" else "*",
             'entity_name': entity_name,
             'doc_id': doc_id,
             'doc': {
-                'title': doc_obj['title'],
-                'body': doc_obj['body']
+                'title': doc_obj['title'+self.data_suffix],
+                'body': doc_obj['body'+self.data_suffix]
             },
             'city': city,
         }
@@ -386,11 +398,20 @@ class BaseDataset(torch.utils.data.Dataset):
 
         with open(os.path.join("data/", "taxi_db.json"), 'r') as fp:
             taxi_types = json.load(fp)['taxi_types']
+        domain_trans = {"hotel" :["호텔", "숙박"],
+                        "restaurant" :["식당", "음식점", "맛집", "카페", "푸드", "레스토랑"],
+                        "attraction" :["관광지", "관광명소", "관광"],
+                        "taxi" : ["택시"],
+                        "train" :["기차", "열차"]}
         def extract_domain(text, extracted_entity):
             extracted_domain = dict()
             for domain in domain_entities.keys():
                 extracted_domain[domain] = True \
                     if domain.lower() in text.lower() or extracted_entity[domain] else False
+                if not extracted_domain[domain] and self.args.data_language == "ko" : # 240930
+                    for domain_trans_val in domain_trans[domain] :
+                        if not domain_trans_val in text : continue
+                        extracted_domain[domain] = True
 
             for taxi_type in taxi_types:
                 if taxi_type.lower() in text.lower():
@@ -446,7 +467,7 @@ class BaseDataset(torch.utils.data.Dataset):
             label_idx = list(passages.keys()).index(key)
 
             history = [
-                (self.user_token if (len(log) - i) % 2 == 1 else self.system_token) + turn["text"]
+                (self.user_token if (len(log) - i) % 2 == 1 else self.system_token) + turn["text"+self.args.data_suffix]
                 for i, turn in enumerate(log)
             ]
 
@@ -499,7 +520,7 @@ class BaseDataset(torch.utils.data.Dataset):
 
             examples.append({
                 "history": history,
-                "response": (self.system_token + label['response']) if label['target'] else "",
+                "response": (self.system_token + label['response'+self.args.data_suffix]) if label['target'] else "",
                 "passage": passage,
                 "label_idx": label_idx,
                 "pred_idx": result['pred_idx'] if result is not None else None,

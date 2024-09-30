@@ -1,11 +1,9 @@
-import os, re
-import json
-import sys
-from nltk.metrics import StringMetric
-from nltk.translate.meteor_score import meteor_score
+import os, sys, re, json
 import nltk
+from nltko.metrics import DefaultMetric
 
 nltk.download('wordnet')
+RE_TAG = re.compile(r'\[[A-Za-z]+\]')
 RE_ART = re.compile(r'\b(a|an|the)\b')
 RE_PUNC = re.compile(r'[!"#$%&()*+,-./:;<=>?@\[\]\\^`{|}~_\']')
 
@@ -61,8 +59,9 @@ def compute(score_sum):
 
 def normalize_text(text):
         result = text.lower()
+        result = RE_TAG.sub(' ', result)
         result = RE_PUNC.sub(' ', result)
-        result = RE_ART.sub(' ', result)
+        # result = RE_ART.sub(' ', result)
         result = ' '.join(result.split())
 
         return result
@@ -72,17 +71,19 @@ def get_rouge(gold, pred):
 
     result = {1:list(), 2:list(), 3:list(), 'l':list()}
     for i in range(len(gold)):
+        sys.stderr.write("ROU\t%s/%s\r" % (i, len(gold)))
         p = pred[i]
         g = gold[i]
         for key in result:
             try:
                 if p in null_list or g in null_list: raise ZeroDivisionError
                 if 'l' == key:
-                    result[key].append(StringMetric().rouge_l([g],p))
+                    result[key].append(DefaultMetric().rouge_l([g],p))
                 else:
-                    result[key].append(StringMetric().rouge_n([g],p,key))
+                    result[key].append(DefaultMetric().rouge_n([g],p,key))
             except ZeroDivisionError as e:
                 result[key].append(0.0)
+    sys.stderr.write("\n")
 
     result = {key: sum(result[key])/len(result[key]) if len(result[key])>0 else 0 for key in result}
     #for key in result:
@@ -94,14 +95,16 @@ def get_bleu(gold, pred):
 
     result = {1:list(), 2:list(), 3:list(), 4:list()}
     for i in range(len(gold)):
+        sys.stderr.write("BLEU\t%s/%s\r" % (i, len(gold)))
         p = pred[i]
         g = gold[i]
         for key in result:
             try:
                 if p in null_list or g in null_list: raise ZeroDivisionError
-                result[key].append(StringMetric().bleu_n([g],[p],key))
+                result[key].append(DefaultMetric().bleu_n([g],[p],key))
             except ZeroDivisionError as e:
                 result[key].append(0.0)
+    sys.stderr.write("\n")
 
     result = {key: sum(result[key])/len(result[key]) if len(result[key])>0 else 0 for key in result}
     result['a'] = sum([result[key] for key in result])/len(result)
@@ -114,34 +117,39 @@ def get_cider(gold, pred):
 
     result = list()
     for i in range(len(gold)):
+        sys.stderr.write("CIDER\t%s/%s\r" % (i, len(gold)))
         p = pred[i]
         g = gold[i]
         try:
             if p in null_list or g in null_list: raise ZeroDivisionError
             #print(StringMetric().cider([g],[p]))
             #result.append(float(StringMetric().cider([g],[p])[0])) #TODO: 수정함
-            result.append(float(StringMetric().cider([g],[p])))
+            result.append(float(DefaultMetric().cider([g],[p])))
         except ZeroDivisionError as e:
             result.append(0.0)
+    sys.stderr.write("\n")
+
     result = sum(result)/len(result) if len(result)>0 else 0
     result = {'cider':result}
     #print('CIDER: {}'.format(result['cider']), flush=True)
     return result
 
 def get_meteor(gold, pred):
-    #from nltk import StringMetric()
     null_list = [' ','',[''],[],None]
 
     result = list()
     for i in range(len(gold)):
+        sys.stderr.write("METEOR\t%s/%s\r" % (i, len(gold)))
         p = pred[i]
         g = gold[i]
         try:
             if p in null_list or g in null_list: raise ZeroDivisionError
             #result.append(float(StringMetric().meteor([g],p)))
-            result.append(float(meteor_score([g],p)))
+            result.append(float(DefaultMetric().meteor([g],p)))
         except (IndexError, ZeroDivisionError) as e:
             result.append(0.0)
+    sys.stderr.write("\n\n")
+
     result = sum(result)/len(result) if len(result)>0 else 0
     result = {'meteor':result}
     #print('METEOR: {}'.format(result['meteor']), flush=True)
@@ -149,7 +157,8 @@ def get_meteor(gold, pred):
 
 
 #file_path = sys.argv[1]
-file_path = 'checkpoint/dstc9_v29_recent/trained_model/prediction_test.jsonl'
+file_path = 'checkpoint/dstc9_v2_generate/trained_model/prediction_test.jsonl'
+#file_path = 'checkpoint/dstc9_v29_recent/trained_model/prediction_test.jsonl'
 none_idx = 12039
 with open(file_path, 'r') as f:
     prediction_results = [json.loads(line) for line in f]
@@ -205,8 +214,10 @@ print("-----"*10)
 prediction_results = [result for result in prediction_results \
     if result['label_idx'] != none_idx and result['pred_idx'][0] != none_idx]
 
-pred = [normalize_text(d['pred_response']) for d in data]
-gold = [normalize_text(d['label_response']) for d in data]
+#pred = [normalize_text(d['pred_response']) for d in data]
+#gold = [normalize_text(d['label_response']) for d in data]
+pred = [normalize_text(d['pred_response']) for d in prediction_results]
+gold = [normalize_text(d['label_response']) for d in prediction_results]
 
 assert len(pred) == len(gold)
 print('data size: {}\n'.format(len(gold)))
@@ -214,13 +225,14 @@ print('data size: {}\n'.format(len(gold)))
 bleu_result = get_bleu(gold, pred)
 rouge_result = get_rouge(gold, pred)
 cider_result = get_cider(gold, pred)
-meteor_result = get_meteor(gold, pred)
+#meteor_result = get_meteor(gold, pred)
 
 for key in bleu_result:
-    print('BLEU-{}: {}'.format(key, compute(bleu_result[key])[2]), flush=True)
+    print('BLEU-{}: {}'.format(key, round(bleu_result[key], 4)), flush=True)
 
 for key in rouge_result:
-    print('rouge-{}: {}'.format(key, compute(rouge_result[key])[2]), flush=True)
+    print('rouge-{}: {}'.format(key, round(rouge_result[key], 4)), flush=True)
 
-print('CIDER: {}'.format(compute(cider_result['cider'])[2]), flush=True)
-print('METEOR: {}'.format(compute(cider_result['meteor'])[2]), flush=True)
+print('CIDER: {}'.format(round(cider_result['cider'], 4)), flush=True)
+
+# print('METEOR: {}'.format(compute(cider_result['meteor'])[2]), flush=True)
