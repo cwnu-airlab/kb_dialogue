@@ -123,8 +123,8 @@ def main():
         raise argparse.ArgumentTypeError(f"Invalid gpu_id")
     if args.mode == "predict" and args.local_rank != -1:
         raise Exception("predict mode only support single GPU or CPU")
-    if args.data_language == "ko":
-        raise Exception('데이터 셋 수정 필요')
+    #if args.data_language == "ko":
+        #raise Exception('데이터 셋 수정 필요')
 
     # Set CUDA, GPU & distributed training
     if not args.distributed:
@@ -166,6 +166,7 @@ def main():
     # 메인 프로세스가 입력을 받는동안 다른 프로세스들은 대기
     if args.distributed:
         torch.distributed.barrier()
+    args.data_suffix = '' if args.data_language == 'eg' else '_ko'
 
     logger.info('COMMAND: python '+' '.join(sys.argv))
     logger.info(f"Arguments : {args}")
@@ -182,8 +183,8 @@ def main():
         tokenizer.add_special_tokens(SPECIAL_TOKENS)
 
     # Load Dataset
-    fit_knowledge_reader = KnowledgeReader(os.path.join(args.data_dir, 'data_fit'))
-    eval_knowledge_reader = KnowledgeReader(os.path.join(args.data_dir, 'data_eval'))
+    fit_knowledge_reader = KnowledgeReader(os.path.join(args.data_dir, 'data_fit'), args.data_suffix)
+    eval_knowledge_reader = KnowledgeReader(os.path.join(args.data_dir, 'data_eval'), args.data_suffix)
 
     if args.model_type == "ict":
         dataset = ICTDataset
