@@ -1,6 +1,8 @@
 import os, sys, re, json
+import torch
 import nltk
 from nltko.metrics import DefaultMetric
+from transformers import AutoModel, AutoTokenizer
 
 nltk.download('wordnet')
 RE_TAG = re.compile(r'\[[A-Za-z]+\]')
@@ -155,6 +157,39 @@ def get_meteor(gold, pred):
     #print('METEOR: {}'.format(result['meteor']), flush=True)
     return result
 
+def cal_score(a, b):
+    if len(a.shape) == 1: a = a.unsqueeze(0)
+    if len(b.shape) == 1: b = b.unsqueeze(0)
+
+    a_norm = a / a.norm(dim=1)[:, None]
+    b_norm = b / b.norm(dim=1)[:, None]
+    return torch.mm(a_norm, b_norm.transpose(0, 1)) * 100
+
+def get_simcse(gold, pred):
+    model = AutoModel.from_pretrained('BM-K/KoSimCSE-bert-multitask')
+    tokenizer = AutoTokenizer.from_pretrained('BM-K/KoSimCSE-bert-multitask')
+    null_list = [' ','',[''],[],None]
+
+    result = list()
+    for i in range(len(gold)):
+        sys.stderr.write("SIMCSE\t%s/%s\r" % (i, len(gold)))
+        p = pred[i]
+        g = gold[i]
+        try:
+            if p in null_list or g in null_list: raise ZeroDivisionError
+            inputs_eA = tokenizer(g, padding=True, truncation=True, return_tensors="pt")
+            inputs_eP = tokenizer(p, padding=True, truncation=True, return_tensors="pt")
+            embeddings_eA, _ = model(**inputs_eA, return_dict=False)
+            embeddings_eP, _ = model(**inputs_eP, return_dict=False)
+            score = cal_score(embeddings_eA[0][0], embeddings_eP[0][0])
+            result.append(score.item())
+        except (IndexError, ZeroDivisionError) as e:
+            result.append(0.0)
+    sys.stderr.write("\n\n")
+
+    result = sum(result)/len(result) if len(result)>0 else 0
+    result = {'simcse':result}
+    return result
 
 #file_path = sys.argv[1]
 file_path = 'checkpoint/dstc9_v2_generate/trained_model/prediction_test.jsonl'
@@ -225,6 +260,7 @@ print('data size: {}\n'.format(len(gold)))
 bleu_result = get_bleu(gold, pred)
 rouge_result = get_rouge(gold, pred)
 cider_result = get_cider(gold, pred)
+#simcse_result = get_simcse(gold, pred)
 #meteor_result = get_meteor(gold, pred)
 
 for key in bleu_result:
@@ -235,4 +271,6 @@ for key in rouge_result:
 
 print('CIDER: {}'.format(round(cider_result['cider'], 4)), flush=True)
 
-# print('METEOR: {}'.format(compute(cider_result['meteor'])[2]), flush=True)
+# print('simCSE: {}'.format(round(simcse_result['simcse'], 4)), flush=True)
+
+# print('METEOR: {}'.format(compute(meteor_result['meteor'])[2]), flush=True)
