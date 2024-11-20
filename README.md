@@ -120,3 +120,7 @@
 
 - Retriever 실험 결과 파일 경로를 retr_eval.py에 설정하고 실행
 - Generator 실험 결과 파일 경로를 gener_eval.py에 설정하고 실행
+
+# Acknowledgement
+
+본 연구는 정부(과학기술정보통신부)의 재원으로 지원을 받아 수행된 연구입니다. (2022-0-00320, RS-2022-II220320)
